@@ -232,10 +232,13 @@ class MockWebHelper extends _i1.Mock implements _i9.WebHelper {
       super.noSuchMethod(Invocation.setter(#concurrentCalls, _concurrentCalls),
           returnValueForMissingStub: null);
   @override
-  _i7.Stream<_i10.FileResponse> downloadFile(String? url,
-          {String? key,
-          Map<String, String>? authHeaders,
-          bool? ignoreMemCache = false}) =>
+  _i7.Stream<_i10.FileResponse> downloadFile(
+    String? url, {
+    String? key,
+    Map<String, String>? authHeaders,
+    bool? ignoreMemCache = false,
+    String? fileName,
+  }) =>
       (super.noSuchMethod(
               Invocation.method(#downloadFile, [
                 url

@@ -75,16 +75,28 @@ class CacheManager implements BaseCacheManager {
     String url, {
     String? key,
     Map<String, String>? headers,
+    String? fileName,
   }) async {
     key ??= url;
     final cacheFile = await getFileFromCache(key);
     if (cacheFile != null) {
       if (cacheFile.validTill.isBefore(DateTime.now())) {
-        unawaited(downloadFile(url, key: key, authHeaders: headers));
+        unawaited(downloadFile(
+          url,
+          key: key,
+          authHeaders: headers,
+          fileName: fileName,
+        ));
       }
       return cacheFile.file;
     }
-    return (await downloadFile(url, key: key, authHeaders: headers)).file;
+    return (await downloadFile(
+      url,
+      key: key,
+      authHeaders: headers,
+      fileName: fileName,
+    ))
+        .file;
   }
 
   /// Get the file from the cache and/or online, depending on availability and age.
@@ -93,12 +105,17 @@ class CacheManager implements BaseCacheManager {
   /// cached file is too old the newly downloaded file is returned afterwards.
   @override
   @Deprecated('Prefer to use the new getFileStream method')
-  Stream<FileInfo> getFile(String url,
-      {String? key, Map<String, String>? headers}) {
+  Stream<FileInfo> getFile(
+    String url, {
+    String? key,
+    Map<String, String>? headers,
+    String? fileName,
+  }) {
     return getFileStream(
       url,
       key: key,
       withProgress: false,
+      fileName: fileName,
     ).where((r) => r is FileInfo).cast<FileInfo>();
   }
 
@@ -114,16 +131,34 @@ class CacheManager implements BaseCacheManager {
   /// returned from the cache there will be no progress given, although the file
   /// might be outdated and a new file is being downloaded in the background.
   @override
-  Stream<FileResponse> getFileStream(String url,
-      {String? key, Map<String, String>? headers, bool withProgress = false}) {
+  Stream<FileResponse> getFileStream(
+    String url, {
+    String? key,
+    Map<String, String>? headers,
+    bool withProgress = false,
+    String? fileName,
+  }) {
     key ??= url;
     final streamController = StreamController<FileResponse>();
-    _pushFileToStream(streamController, url, key, headers, withProgress);
+    _pushFileToStream(
+      streamController,
+      url,
+      key,
+      headers,
+      withProgress,
+      fileName,
+    );
     return streamController.stream;
   }
 
-  Future<void> _pushFileToStream(StreamController streamController, String url,
-      String? key, Map<String, String>? headers, bool withProgress) async {
+  Future<void> _pushFileToStream(
+    StreamController streamController,
+    String url,
+    String? key,
+    Map<String, String>? headers,
+    bool withProgress, [
+    String? fileName,
+  ]) async {
     key ??= url;
     FileInfo? cacheFile;
     try {
@@ -138,8 +173,12 @@ class CacheManager implements BaseCacheManager {
     }
     if (cacheFile == null || cacheFile.validTill.isBefore(DateTime.now())) {
       try {
-        await for (var response
-            in _webHelper.downloadFile(url, key: key, authHeaders: headers)) {
+        await for (var response in _webHelper.downloadFile(
+          url,
+          key: key,
+          authHeaders: headers,
+          fileName: fileName,
+        )) {
           if (response is DownloadProgress && withProgress) {
             streamController.add(response);
           }
@@ -163,10 +202,13 @@ class CacheManager implements BaseCacheManager {
 
   ///Download the file and add to cache
   @override
-  Future<FileInfo> downloadFile(String url,
-      {String? key,
-      Map<String, String>? authHeaders,
-      bool force = false}) async {
+  Future<FileInfo> downloadFile(
+    String url, {
+    String? key,
+    Map<String, String>? authHeaders,
+    bool force = false,
+    String? fileName,
+  }) async {
     key ??= url;
     var fileResponse = await _webHelper
         .downloadFile(
@@ -174,6 +216,7 @@ class CacheManager implements BaseCacheManager {
           key: key,
           authHeaders: authHeaders,
           ignoreMemCache: force,
+          fileName: fileName,
         )
         .firstWhere((r) => r is FileInfo);
     return fileResponse as FileInfo;
@@ -205,13 +248,14 @@ class CacheManager implements BaseCacheManager {
     String? eTag,
     Duration maxAge = const Duration(days: 30),
     String fileExtension = 'file',
+    String? fileName,
   }) async {
     key ??= url;
     var cacheObject = await _store.retrieveCacheData(key);
     cacheObject ??= CacheObject(
       url,
       key: key,
-      relativePath: '${const Uuid().v1()}.$fileExtension',
+      relativePath: '${fileName ?? const Uuid().v1()}.$fileExtension',
       validTill: DateTime.now().add(maxAge),
     );
 
@@ -241,12 +285,13 @@ class CacheManager implements BaseCacheManager {
     String? eTag,
     Duration maxAge = const Duration(days: 30),
     String fileExtension = 'file',
+    String? fileName,
   }) async {
     key ??= url;
     var cacheObject = await _store.retrieveCacheData(key);
     cacheObject ??= CacheObject(url,
         key: key,
-        relativePath: '${const Uuid().v1()}'
+        relativePath: '${fileName ?? const Uuid().v1()}'
             '.$fileExtension',
         validTill: DateTime.now().add(maxAge));
 

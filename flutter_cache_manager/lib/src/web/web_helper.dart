@@ -6,11 +6,11 @@ import 'package:clock/clock.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:flutter_cache_manager/src/cache_store.dart';
+import 'package:flutter_cache_manager/src/result/file_info.dart';
 import 'package:flutter_cache_manager/src/result/file_response.dart';
 import 'package:flutter_cache_manager/src/storage/cache_object.dart';
-import 'package:flutter_cache_manager/src/cache_store.dart';
 import 'package:flutter_cache_manager/src/web/file_service.dart';
-import 'package:flutter_cache_manager/src/result/file_info.dart';
 import 'package:flutter_cache_manager/src/web/queue_item.dart';
 import 'package:pedantic/pedantic.dart';
 import 'package:rxdart/rxdart.dart';
@@ -35,16 +35,24 @@ class WebHelper {
   final Queue<QueueItem> _queue = Queue();
 
   ///Download the file from the url
-  Stream<FileResponse> downloadFile(String url,
-      {String? key,
-      Map<String, String>? authHeaders,
-      bool ignoreMemCache = false}) {
+  Stream<FileResponse> downloadFile(
+    String url, {
+    String? key,
+    Map<String, String>? authHeaders,
+    bool ignoreMemCache = false,
+    String? fileName,
+  }) {
     key ??= url;
     var subject = _memCache[key];
     if (subject == null || ignoreMemCache) {
       subject = BehaviorSubject<FileResponse>();
       _memCache[key] = subject;
-      unawaited(_downloadOrAddToQueue(url, key, authHeaders));
+      unawaited(_downloadOrAddToQueue(
+        url,
+        key,
+        authHeaders,
+        fileName,
+      ));
     }
     return subject.stream;
   }
@@ -53,8 +61,9 @@ class WebHelper {
   Future<void> _downloadOrAddToQueue(
     String url,
     String key,
-    Map<String, String>? authHeaders,
-  ) async {
+    Map<String, String>? authHeaders, [
+    String? fileName,
+  ]) async {
     //Add to queue if there are too many calls.
     if (concurrentCalls >= fileFetcher.concurrentFetches) {
       _queue.add(QueueItem(url, key, authHeaders));
@@ -64,8 +73,12 @@ class WebHelper {
     concurrentCalls++;
     var subject = _memCache[key]!;
     try {
-      await for (var result
-          in _updateFile(url, key, authHeaders: authHeaders)) {
+      await for (var result in _updateFile(
+        url,
+        key,
+        authHeaders: authHeaders,
+        fileName: fileName,
+      )) {
         subject.add(result);
       }
     } catch (e, stackTrace) {
@@ -85,19 +98,23 @@ class WebHelper {
   }
 
   ///Download the file from the url
-  Stream<FileResponse> _updateFile(String url, String key,
-      {Map<String, String>? authHeaders}) async* {
+  Stream<FileResponse> _updateFile(
+    String url,
+    String key, {
+    Map<String, String>? authHeaders,
+    String? fileName,
+  }) async* {
     var cacheObject = await _store.retrieveCacheData(key);
     cacheObject = cacheObject == null
         ? CacheObject(
             url,
             key: key,
             validTill: clock.now(),
-            relativePath: '${const Uuid().v1()}.file',
+            relativePath: '${fileName ?? const Uuid().v1()}.file',
           )
         : cacheObject.copyWith(url: url);
     final response = await _download(cacheObject, authHeaders);
-    yield* _manageResponse(cacheObject, response);
+    yield* _manageResponse(cacheObject, response, fileName);
   }
 
   Future<FileServiceResponse> _download(
@@ -118,7 +135,10 @@ class WebHelper {
   }
 
   Stream<FileResponse> _manageResponse(
-      CacheObject cacheObject, FileServiceResponse response) async* {
+    CacheObject cacheObject,
+    FileServiceResponse response, [
+    String? fileName,
+  ]) async* {
     final hasNewFile = statusCodesNewFile.contains(response.statusCode);
     final keepOldFile = statusCodesFileNotChanged.contains(response.statusCode);
     if (!hasNewFile && !keepOldFile) {
@@ -130,7 +150,7 @@ class WebHelper {
     }
 
     final oldCacheObject = cacheObject;
-    var newCacheObject = _setDataFromHeaders(cacheObject, response);
+    var newCacheObject = _setDataFromHeaders(cacheObject, response, fileName);
     if (statusCodesNewFile.contains(response.statusCode)) {
       var savedBytes = 0;
       await for (var progress in _saveFile(newCacheObject, response)) {
@@ -159,7 +179,10 @@ class WebHelper {
   }
 
   CacheObject _setDataFromHeaders(
-      CacheObject cacheObject, FileServiceResponse response) {
+    CacheObject cacheObject,
+    FileServiceResponse response, [
+    String? fileName,
+  ]) {
     final fileExtension = response.fileExtension;
     var filePath = cacheObject.relativePath;
 
@@ -169,7 +192,7 @@ class WebHelper {
         unawaited(_removeOldFile(filePath));
       }
       // Store new file on different path
-      filePath = '${const Uuid().v1()}$fileExtension';
+      filePath = '${fileName ?? const Uuid().v1()}$fileExtension';
     }
     return cacheObject.copyWith(
       relativePath: filePath,
